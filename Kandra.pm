@@ -156,30 +156,30 @@ sub inner_replace
 		}{	'blk_regex','var_regex','pat_regex','frm_regex','stb_regex','methods'};
 	#print "recursing at depth $true_depth->[-1].\n";
 	$text =~ s{$pat_regex}{
-		$self->pat_strip($1,$2,$3,
-			extend($true_depth),
-			extend($patterns,$local))}gexms;
+				pat_strip($1,$2,$3,
+					extend($true_depth),
+					extend($patterns,$local))}gexms;
 	#print "finished stripping patterns at depth $true_depth->[-1].\n";
 	$text =~ s{$stb_regex}{
-		$self->stb_replace($1,$2,
-			extend($true_depth),extend($lookup),
-			extend($patterns,$local))}gexms;
+				stb_replace($1,$2,
+					extend($true_depth),extend($lookup),
+					extend($patterns,$local))}gexms;
 	#print "finished replacing stubs at depth $true_depth->[-1].\n";
 	$text =~ s{$blk_regex}{
-		$self->blk_replace($1,$2,$3,$4,
-			extend($true_depth),extend($lookup),
-			extend($patterns,$local))}gexms;
+				blk_replace($1,$2,$3,$4,
+					extend($true_depth),extend($lookup),
+					extend($patterns,$local))}gexms;
 	#print "finished replacing blocks at depth $true_depth->[-1].\n";
 	$text =~ s{$var_regex}{
-		$self->var_replace($1,$2,
-			extend($true_depth),extend($lookup))}gexms;
+				var_replace($1,$2,
+					extend($true_depth),extend($lookup))}gexms;
 	#print "finished replacing variables at depth $true_depth->[-1].\n";
 	return $text;
 }
 
 sub pat_strip
 {
-	my ($self,$name,$depth,$text,$true_depth,$patterns) = @_;
+	my ($name,$depth,$text,$true_depth,$patterns) = @_;
 	return '<!+'."$name?$depth>$text".'<!+/'."$name?$depth>" if $depth != $true_depth->[-1];
 	#print "pattern: $name depth: $depth expected_depth: $expected_depth\n";
 	$patterns->[-1]->{$name} = [$depth,$text];
@@ -221,9 +221,9 @@ sub stb_replace
 					{
 						my ($pat_depth,$pat_text) =
 							@{$local_patterns->{$pat_name}};
-						$self->inner_replace($pat_text,
-						extend($lookup,$hash),$patterns,
-						extend($true_depth, $pat_depth + 1))
+						inner_replace($pat_text,
+							extend($lookup,$hash),$patterns,
+							extend($true_depth, $pat_depth + 1))
 					}
 					else { '' }
 				} @{$lookup->{$name}});
@@ -235,9 +235,9 @@ sub stb_replace
 				{
 					my ($pat_depth,$pat_text) =
 						@{$local_patterns->{$pat_name}};
-					return $self->inner_replace($pat_text,
-						extend($lookup,$hash),$patterns,
-						extend($true_depth, $pat_depth + 1));
+					return inner_replace($pat_text,
+							extend($lookup,$hash),$patterns,
+							extend($true_depth, $pat_depth + 1));
 				}
 				else { return ''; }
 			}
@@ -287,7 +287,7 @@ sub blk_replace
 				{
 					#print "replacing block $name with an array\n";
 					return join($comma_full, map
-					{$self->inner_replace($text,
+					{inner_replace($text,
 						extend($lookup,$_),$patterns,
 						extend($true_depth, $true_depth->[-1] + 1))}
 						@{$local_lookup->{$name}});
@@ -300,7 +300,7 @@ sub blk_replace
 			elsif(ref $local_lookup->{$name} eq 'HASH')
 			{
 				#print "replacing block $name with hash\n";
-				return $self->inner_replace($text,
+				return inner_replace($text,
 							extend($lookup,$local_lookup->{$name}),$patterns,
 								extend($true_depth, $true_depth->[-1] + 1));
 			}
@@ -308,7 +308,7 @@ sub blk_replace
 			{
 				#print "entering block $name a specified number of times.\n";
 				return join($comma_full, map
-					{$self->inner_replace($text,extend($lookup,{}),$patterns,
+					{inner_replace($text,extend($lookup,{}),$patterns,
 						extend($true_depth, $true_depth->[-1] + 1))}
 					(1..($local_lookup->{$name})));
 			}
