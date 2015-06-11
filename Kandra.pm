@@ -174,6 +174,7 @@ sub inner_replace
 				var_replace($1,$2,
 					extend($true_depth),extend($lookup))}gexms;
 	#print "finished replacing variables at depth $true_depth->[-1].\n";
+	return () unless $text;
 	return $text;
 }
 
