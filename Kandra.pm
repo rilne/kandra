@@ -99,8 +99,8 @@ sub process_intern
 		$rear_form, $comma, $depth_ref, $f_depth_ref) = @_;
 	my ($front,$rear) = ('','');
 
-	if($front_form)	{ $front = '<!@>';	}
-	if($rear_form)	{ $rear  = '<!@@>';	}
+	if    ($front_form) { $front = '<!@>';	}
+	unless($rear_form)	{ $rear  = '<!@@>';	}
 
 	if($is_var)
 	{
