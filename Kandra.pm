@@ -32,7 +32,7 @@ my $pre_regex =
 		)
 		(/?)					# end tag (5)
 		(?(1)|\s*)				# allow spaces unless var
-		([A-Za-z0-9_:-]+)		# name (6)
+		([A-Za-z0-9_:.-]+)		# name (6)
 		(?: [?] ([0-9]+) )?		# optional depth mod (7)
 		(?(1)|\s*)				# allow spaces unless var
 		(?(1)
@@ -41,7 +41,7 @@ my $pre_regex =
 		)	|
 		(?:
 			([|]?)				# format option (8)
-			((?:[,;.]|[,][,])?)># list delimiter option (9)
+			(?:/([^>]+))?>		# list delimiter option (9)
 		))
 	}xms;
 
@@ -63,7 +63,7 @@ for((	['var_regex',	0,	'var'	 ],
 				$right
 					(.*?)
 				$left
-				/	\1 					[?]		\2		 ((?:[,;.]|[,][,])?)
+				/	\1 					[?]		\2		 (?:/([^>]+))?>
 				$right
 				}xms):
 			(qr{
@@ -267,7 +267,7 @@ sub blk_replace
 {
 	my ($name,$depth,$text,$comma,$true_depth,$lookup,$patterns) = @_;
 
-	my $comma_full = {''=>'',','=>', ',',,'=>',',';'=>",\n",}->{$comma};
+	my $comma_full= {','=>', ',',,'=>',',';'=>",\n",';;'=>';'}->{$comma} // $comma;
 
 	if($depth <= $true_depth->[-1])
 	{
