@@ -12,45 +12,36 @@ our @EXPORT = qw(replace);
 my %temp =
 (
 	'block'   => ['<!',    '>'],
-	'format'  => ['<!%',   '>'],
 	'stub'    => ['<!=',   '>'],
-	'pattern' => ['<!\\+', '>'],
+	'pattern' => ['<![+]', '>'],
 	'var'     => ['{',     '}'],
 );
-
-my $formats =
-{
-	'idt' => \&form_indent,
-}
 
 my $pre_regex =
 	qr{
 		(?:
-			([{])	 |	# is var (1)
+			([{])	 |			# is var (1)
 			(?:
-				( <! 	# front code (2)
+				( <! 			# front code (2)
 					(?:  [+] |
-						([%])|	# is form zone (3)
-						([=])	# is stub (4)
+						([=])	# is stub (3)
 					)?
 				)
-				([|]?)	# format option (5)
+				([|]?)			# format option (4)
 			)
 		)
-		(/?)		# end tag (6)
-		(?(1)|\s*)	# allow spaces unless var
-		(?(2)|		# sep must not have name
-		([A-Za-z0-9_:-]+) # name (7)
-		)
-		(?: [?] ([0-9]+) )? # optional depth mod (8)
-		(?(1)|\s*)	# allow spaces unless var
+		(/?)					# end tag (5)
+		(?(1)|\s*)				# allow spaces unless var
+		([A-Za-z0-9_:-]+)		# name (6)
+		(?: [?] ([0-9]+) )?		# optional depth mod (7)
+		(?(1)|\s*)				# allow spaces unless var
 		(?(1)
 		(?:
 			[}]
 		)	|
 		(?:
-			([|]?)	# format option (9)
-			>
+			([|]?)				# format option (8)
+			((?:[,;.]|[,][,])?)># list delimiter option (9)
 		))
 	}xms;
 
@@ -59,7 +50,6 @@ my $regexes = {};
 for((	['var_regex',	0,	'var'	 ],
 		['blk_regex',	1,	'block'	 ],
 		['pat_regex',	1,	'pattern'],
-		['frm_regex',	1,	'format' ],
 		['stb_regex',	0,	'stub'	 ],))
 {
 	my ($regex_name, $regex_form, $regex_store) = @{$_};
@@ -69,13 +59,11 @@ for((	['var_regex',	0,	'var'	 ],
 		(($regex_form)?
 			(qr{
 				$left
-
-					([a-zA-Z0-9_:-]+)	[?] 	([0-9]+) 	(?:[:]([0-9]))?
-
+					([a-zA-Z0-9_:-]+)	[?] 	([0-9]+)
 				$right
 					(.*?)
 				$left
-				/	\1 					[?]		\2			(?(3)[:]\3)
+				/	\1 					[?]		\2		 ((?:[,;.]|[,][,])?)
 				$right
 				}xms):
 			(qr{
@@ -106,16 +94,13 @@ sub process
 
 sub process_intern
 {
-	my ($is_var, $front_code, $is_form, $is_stub,
+	my ($is_var, $front_code, $is_stub,
 		$front_form, $is_close, $name, $depth_mod,
-		$rear_form, $depth_ref, $f_depth_ref) = @_;
+		$rear_form, $comma, $depth_ref, $f_depth_ref) = @_;
 	my ($front,$rear) = ('','');
 
-	if($front_form)
-	{ $front = '<!@>'; }
-
-	if($rear_form)
-	{ $rear = '<!@@>'; }
+	if($front_form)	{ $front = '<!@>';	}
+	if($rear_form)	{ $rear  = '<!@@>';	}
 
 	if($is_var)
 	{
@@ -133,19 +118,6 @@ sub process_intern
 						(${$depth_ref})).
 					">$rear";
 	}
-	elsif($is_form)
-	{
-		if($is_close)
-		{
-			${$f_depth_ref}--;
-			return "$front$front_code/$name?${$depth_ref}:${$f_depth_ref}>$rear";
-		}
-		else
-		{
-			my $temp = ${$f_depth_ref}++;
-			return "$front$front_code$name?${$depth_ref}:$temp>$rear";
-		}
-	}
 	elsif($is_close)
 	{
 		${$depth_ref}--;
@@ -156,7 +128,7 @@ sub process_intern
 							${$depth_ref} -= $depth_mod;
 							${$depth_ref}}):
 						(${$depth_ref})).
-					">$rear";
+					"$comma>$rear";
 		#return "$front$front_code/$name?${$depth_ref}>$rear";
 	}
 	else
@@ -176,15 +148,15 @@ sub process_intern
 
 sub inner_replace
 {
-	my ($self,$text,$lookup,$patterns,$true_depth) = @_;
+	my ($text,$lookup,$patterns,$true_depth) = @_;
 	my $local = clone_hash($patterns->[-1]);
 	#print "local: $local\n";
-	my (	$blk_regex,	$var_regex,	$pat_regex,	$frm_regex,	$stb_regex, $sep_regex,	$methods) =
+	my (	$blk_regex,	$var_regex,	$pat_regex,	$frm_regex,	$stb_regex,	$methods) =
 	@{$regexes
-		}{	'blk_regex','var_regex','pat_regex','frm_regex','stb_regex','sep_regex','methods'};
+		}{	'blk_regex','var_regex','pat_regex','frm_regex','stb_regex','methods'};
 	#print "recursing at depth $true_depth->[-1].\n";
 	$text =~ s{$pat_regex}{
-		$self->pat_strip($1,$2,$4,
+		$self->pat_strip($1,$2,$3,
 			extend($true_depth),
 			extend($patterns,$local))}gexms;
 	#print "finished stripping patterns at depth $true_depth->[-1].\n";
@@ -193,9 +165,8 @@ sub inner_replace
 			extend($true_depth),extend($lookup),
 			extend($patterns,$local))}gexms;
 	#print "finished replacing stubs at depth $true_depth->[-1].\n";
-	$text =~ s{}
 	$text =~ s{$blk_regex}{
-		$self->blk_replace($1,$2,$4,
+		$self->blk_replace($1,$2,$3,$4,
 			extend($true_depth),extend($lookup),
 			extend($patterns,$local))}gexms;
 	#print "finished replacing blocks at depth $true_depth->[-1].\n";
@@ -203,11 +174,6 @@ sub inner_replace
 		$self->var_replace($1,$2,
 			extend($true_depth),extend($lookup))}gexms;
 	#print "finished replacing variables at depth $true_depth->[-1].\n";
-	$text =~ s{$frm_regex}{
-		$self->frm_replace($1,$2,$3,$4,
-			extend($true_depth),extend($lookup),
-			extend($patterns,$local))}gexms;
-	#print "finished formatting at depth $true_depth->[-1].\n";
 	return $text;
 }
 
@@ -229,7 +195,7 @@ sub pat_strip
 
 sub stb_replace
 {
-	my ($self,$name,$depth,$true_depth,$lookup,$patterns) = @_;
+	my ($name,$depth,$true_depth,$lookup,$patterns) = @_;
 	if($depth <= $true_depth->[-1])
 	{
 		#print "entered $name\n";
@@ -298,7 +264,10 @@ sub stb_replace
 
 sub blk_replace
 {
-	my ($self,$name,$depth,$text,$true_depth,$lookup,$patterns) = @_;
+	my ($name,$depth,$text,$comma,$true_depth,$lookup,$patterns) = @_;
+
+	my $comma_full = {''=>'',','=>', ',',,'=>',',';'=>",\n",}->{$comma};
+
 	if($depth <= $true_depth->[-1])
 	{
 		#print "entered $name\n";
@@ -317,7 +286,7 @@ sub blk_replace
 				if(scalar @{$local_lookup->{$name}})
 				{
 					#print "replacing block $name with an array\n";
-					return join('', map
+					return join($comma_full, map
 					{$self->inner_replace($text,
 						extend($lookup,$_),$patterns,
 						extend($true_depth, $true_depth->[-1] + 1))}
@@ -338,7 +307,7 @@ sub blk_replace
 			else
 			{
 				#print "entering block $name a specified number of times.\n";
-				return join('', map
+				return join($comma_full, map
 					{$self->inner_replace($text,extend($lookup,{}),$patterns,
 						extend($true_depth, $true_depth->[-1] + 1))}
 					(1..($local_lookup->{$name})));
@@ -351,7 +320,7 @@ sub blk_replace
 		}
 		else
 		{
-			return '<!'."$name?$depth>$text".'<!/'."$name?$depth>";
+			return '<!'."$name?$depth>$text".'<!/'."$name?$depth$comma>";
 		}
 	}
 	
@@ -360,7 +329,7 @@ sub blk_replace
 	
 	sub var_replace
 	{
-		my ($self,$name,$depth,$true_depth,$lookup) = @_;
+		my ($name,$depth,$true_depth,$lookup) = @_;
 		if($depth <= $true_depth->[-1])
 		{
 			#print "entered $name\n";
@@ -387,37 +356,6 @@ sub blk_replace
 		{
 			return '{'."$name?$depth".'}';
 		}	
-	}
-	
-	sub frm_replace
-	{
-		my ($self,$name,$depth,$f_depth,$text,$true_depth,$lookup,$patterns) = @_;
-		return '<!!'."$name?$depth:$f_depth>$text".'<!!/'."$name?$depth:$f_depth>" 
-			if $depth != $true_depth->[-1];
-		#print "format: $name depth: $depth expected_depth: $expected_depth\n";
-		if(exists $objects{refaddr $self}->{'methods'}->{$name})
-		{
-			return &{$objects{refaddr $self}->{'methods'}->{$name}}(
-				$self->inner_replace($text,$lookup,$patterns,$true_depth));
-		}
-		else
-		{
-			return $self->inner_replace($text,$lookup,$patterns,$true_depth);
-		}
-	}
-	
-	sub form_indent
-	{
-		my ($text) = @_;
-		my $depth = 0;
-		$text =~ s{^[ \t]*(.*?)(<!\[(?:(?:[:]([0-9]+))|\+|(-))>)?$}{
-		do{
-			my $temp=(! $2)?($depth):(
-				($3)?($depth + $3):(
-					($4)?(--$depth):($depth++)));
-			"".join('',map {"\t"} (1..$temp))."$1"
-		}}gexms;
-		return $text;
 	}
 	
 	sub extend # inline copy + push for array refs.
