@@ -5,6 +5,8 @@ package Kandra;
 use Carp;
 use strict;
 
+use File::Slurp;
+
 require Exporter;
 our @ISA = qw(Exporter);
 our @EXPORT = qw(replace);
@@ -28,9 +30,9 @@ my $pre_regex =
 					)?
 				)
 				([|]?)			# format option (4)
+				(/?)			# end tag (5)
 			)
 		)
-		(/?)					# end tag (5)
 		(?(1)|\s*)				# allow spaces unless var
 		([A-Za-z0-9_:.-]*)		# name (6)
 		(?: [?] ([0-9]+) )?		# optional depth mod (7)
@@ -41,7 +43,7 @@ my $pre_regex =
 		)	|
 		(?:
 			([|]?)				# format option (8)
-			(?:/([^>]+))?>		# list delimiter option (9)
+			(?:(/)([^>]+))?>	# list delimiter option (9,10)
 		))
 	}xms;
 
@@ -63,7 +65,7 @@ for((	['var_regex',	0,	'var'	 ],
 				$right
 					(.*?)
 				$left
-				/	(?:\1)?				[?]		\2		 (?:/([^>]+))?>
+				/	(?:\1)?				[?]		\2		 (?:/([^>][^>]?))?
 				$right
 				}xms):
 			(qr{
@@ -78,9 +80,9 @@ sub replace
 sub process
 {
 	my ($text) = @_;
-	my ($depth,$f_depth) = (0,0);
+	my ($depth,$f_depth) = (0);
 	$text =~ s{$pre_regex}{
-				process_intern($1,$2,$3,$4,$5,$6,$7,$8,$9,\$depth,\$f_depth)
+				process_intern($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,\$depth)
 							}gexms;
 	$text =~ s{
 		(?:
@@ -88,7 +90,7 @@ sub process
 			(?: <!@@> \s* 				)
 		)
 			}{}gxms;
-	#print $text."\n\n";
+	write_file('processed',$text);
 	return $text;
 }
 
@@ -96,11 +98,14 @@ sub process_intern
 {
 	my ($is_var, $front_code, $is_stub,
 		$front_form, $is_close, $name, $depth_mod,
-		$rear_form, $comma, $depth_ref, $f_depth_ref) = @_;
+		$rear_form, $has_comma, $comma,
+		$depth_ref) = @_;
 	my ($front,$rear) = ('','');
 
 	if    ($front_form) { $front = '<!@>';	}
 	unless($rear_form)	{ $rear  = '<!@@>';	}
+
+	#print "$name at depth: ${$depth_ref}, mod $depth_mod\n";
 
 	if($is_var)
 	{
@@ -122,23 +127,21 @@ sub process_intern
 	{
 		${$depth_ref}--;
 		return "$front$front_code/$name?".
-					#TODO: wtf? not sure what ($front eq '<!') is for.
-					(($depth_mod && ($front eq '<!'))?
+					(($depth_mod && ($front_code eq '<!'))?
 						(do{
-							${$depth_ref} -= $depth_mod;
+							${$depth_ref} += $depth_mod;
 							${$depth_ref}}):
 						(${$depth_ref})).
-					"$comma>$rear";
+					"$has_comma$comma>$rear";
 		#return "$front$front_code/$name?${$depth_ref}>$rear";
 	}
 	else
 	{
 		my $temp = ${$depth_ref}++;
 		return "$front$front_code$name?".
-					#TODO: wtf? not sure what ($front eq '<!') is for.
-					(($depth_mod && ($front eq '<!'))?
+					(($depth_mod && ($front_code eq '<!'))?
 						(do{
-							${$depth_ref} += $depth_mod;
+							${$depth_ref} -= $depth_mod;
 							$temp}):
 						($temp)).
 					">$rear";
@@ -156,22 +159,22 @@ sub inner_replace
 		}{	'blk_regex','var_regex','pat_regex','frm_regex','stb_regex','methods'};
 	#print "recursing at depth $true_depth->[-1].\n";
 	$text =~ s{$pat_regex}{
-				pat_strip($1,$2,$3,
+				pat_strip($0,$1,$2,$3,
 					extend($true_depth),
 					extend($patterns,$local))}gexms;
 	#print "finished stripping patterns at depth $true_depth->[-1].\n";
 	$text =~ s{$stb_regex}{
-				stb_replace($1,$2,
+				stb_replace($0,$1,$2,
 					extend($true_depth),extend($lookup),
 					extend($patterns,$local))}gexms;
 	#print "finished replacing stubs at depth $true_depth->[-1].\n";
 	$text =~ s{$blk_regex}{
-				blk_replace($1,$2,$3,$4,
+				blk_replace($0,$1,$2,$3,$4,
 					extend($true_depth),extend($lookup),
 					extend($patterns,$local))}gexms;
 	#print "finished replacing blocks at depth $true_depth->[-1].\n";
 	$text =~ s{$var_regex}{
-				var_replace($1,$2,
+				var_replace($0,$1,$2,
 					extend($true_depth),extend($lookup))}gexms;
 	#print "finished replacing variables at depth $true_depth->[-1].\n";
 	return () unless $text;
@@ -180,8 +183,8 @@ sub inner_replace
 
 sub pat_strip
 {
-	my ($name,$depth,$text,$true_depth,$patterns) = @_;
-	return '<!+'."$name?$depth>$text".'<!+/'."$name?$depth>" if $depth != $true_depth->[-1];
+	my ($full,$name,$depth,$text,$true_depth,$patterns) = @_;
+	return $full if $depth != $true_depth->[-1];
 	#print "pattern: $name depth: $depth expected_depth: $expected_depth\n";
 	$patterns->[-1]->{$name} = [$depth,$text];
 	return '';
@@ -196,7 +199,7 @@ sub pat_strip
 
 sub stb_replace
 {
-	my ($name,$depth,$true_depth,$lookup,$patterns) = @_;
+	my ($full,$name,$depth,$true_depth,$lookup,$patterns) = @_;
 	if($depth <= $true_depth->[-1])
 	{
 		#print "entered $name\n";
@@ -250,7 +253,7 @@ sub stb_replace
 	}
 	else
 	{
-		return '<!='."$name?$depth>";
+		return $full;
 	}
 }
 
@@ -265,7 +268,9 @@ sub stb_replace
 
 sub blk_replace
 {
-	my ($name,$depth,$text,$comma,$true_depth,$lookup,$patterns) = @_;
+	my ($full,$name,$depth,$text,$comma,$true_depth,$lookup,$patterns) = @_;
+
+	write_file("$name"."?$depth",$text);
 
 	my $comma_full= {','=>', ',',,'=>',',';'=>",\n",';;'=>';'}->{$comma} // $comma;
 
@@ -315,22 +320,23 @@ sub blk_replace
 			}
 		}
 		else
-			{
-				return '';
-			}
-		}
-		else
 		{
-			return '<!'."$name?$depth>$text".'<!/'."$name?$depth$comma>";
+			return '';
 		}
 	}
+	else
+	{
+		#print "skipping $name"."?$depth at depth ".$true_depth->[-1]."\n";
+		return $full;
+	}
+}
 	
 	# only one way to fill variables, really.
 	# 'variable' => value
 	
 	sub var_replace
 	{
-		my ($name,$depth,$true_depth,$lookup) = @_;
+		my ($full,$name,$depth,$true_depth,$lookup) = @_;
 		if($depth <= $true_depth->[-1])
 		{
 			#print "entered $name\n";
@@ -355,7 +361,7 @@ sub blk_replace
 		}
 		else
 		{
-			return '{'."$name?$depth".'}';
+			return $full;
 		}	
 	}
 	
